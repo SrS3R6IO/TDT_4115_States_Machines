@@ -15,6 +15,7 @@ MQTT_TOPIC_OUTPUT = 'team02Output'
 def get_location():
     return (6.5, 10)
 
+
 class PhoneLogic:
     def __init__(self, name, func, component):
         self._logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ class PhoneLogic:
         self.destination = (None, None)
         self.app = component.app
         self.start_time = time.time()
-    
+
     def clear_gui(self):
         self.app.removeAllWidgets()
         self.app.startLabelFrame("Escooter APP")
@@ -36,6 +37,7 @@ class PhoneLogic:
             self.clear_gui()
             self.app.addLabel("label_intro", "Welcome! Send your location to find scooters.")
             self.app.addButton("Send Location", self.send_location)
+
         self.app.queueFunction(gui_start)
 
     def send_location(self):
@@ -51,22 +53,27 @@ class PhoneLogic:
             for i in range(len(escooters)):
                 self.app.addButton(f"Select {escooters[i]['id']} (Distance {distance[i]}m)",
                                    lambda btn, s=escooters[i]['id']: self.select_escooter(s))
+
         self.app.queueFunction(gui_escooters)
 
     def select_escooter(self, scooter_id):
-        self.component.publish_message({"command": "selected_escooter", "escooter": scooter_id, "phone_name": self.name})
+        self.component.publish_message(
+            {"command": "selected_escooter", "escooter": scooter_id, "phone_name": self.name})
         self.stm.send("send_escooter")
+
         def gui_destination():
             self.clear_gui()
             self.app.addLabel("label_dest", "Click to send your destination:")
             self.app.addButton("Send Destination", self.send_destination)
+
         self.app.queueFunction(gui_destination)
 
     def send_destination(self):
         self.destination = (63.45, 10.38)
-        self.component.publish_message({"command": "exchange_destination", "location": get_location(), "destination": self.destination,  "phone_name": self.name})
+        self.component.publish_message(
+            {"command": "exchange_destination", "location": get_location(), "destination": self.destination,
+             "phone_name": self.name})
         self.stm.send("send_destination")
-        
 
     def receive_route_suggestion(self, distance, price):
         def gui_suggestion():
@@ -75,6 +82,7 @@ class PhoneLogic:
             self.app.addLabel("price_label", f"Estimated price: {price} NOK")
             self.app.addButton("Confirm Route", self.confirm_route)
             self.app.addButton("Decline Route", self.decline_route)
+
         self.app.queueFunction(gui_suggestion)
 
     def confirm_route(self):
@@ -82,7 +90,7 @@ class PhoneLogic:
         self.stm.send("route_confirmed")
 
         self.traveling_gui()
-    
+
     def decline_route(self):
         self.component.publish_message({"command": "route_confirmed", "confirm": False, "phone_name": self.name})
         self.stm.send("route_not_confirmed")
@@ -91,6 +99,7 @@ class PhoneLogic:
             self.clear_gui()
             self.app.addLabel("label_dest", "Destination rejected, choose again:")
             self.app.addButton("Send Destination", self.send_destination)
+
         self.app.queueFunction(gui_destination_again)
 
     def traveling_gui(self):
@@ -101,9 +110,10 @@ class PhoneLogic:
             self.app.addButton("Ask for Distance Update", self.ask_distance)
             self.app.addLabel("distance_label", "")
             self.app.addLabel("price_label", "")
+
         self.app.queueFunction(gui_traveling)
         self.check_arrival()
-                               
+
     def ask_price(self):
         self.component.publish_message({"command": "ask_price", "location": get_location(), "phone_name": self.name})
 
@@ -134,6 +144,7 @@ class PhoneLogic:
     def show_destination_reached_animation(self):
         # Define an animation for destination reached
         self.clear_gui()
+
         def animation_step(step=0):
             if step == 0:
                 self.app.addLabel("destination_label", "Destination Reached!")
@@ -155,8 +166,6 @@ class PhoneLogic:
         self.app.after(3000, animation_step, 2)
         self.stm.send("arrived")
 
-    
-
 
 class PhoneSenderComponent:
     def __init__(self):
@@ -172,14 +181,12 @@ class PhoneSenderComponent:
 
         self.app = gui("Phone GUI")
         self.setup_gui()
-        
+
         self.phone_logic = PhoneLogic("phone", None, self)
         self.phone_stm = self.phone_logic.create_machine(self.phone_logic.name, None, self)
         self.driver = stmpy.Driver()
         self.driver.add_machine(self.phone_stm)
         self.driver.start()
-  
-        
 
     def setup_gui(self):
         self.app.startLabelFrame("Escooter APP")
@@ -212,22 +219,18 @@ class PhoneSenderComponent:
             distance = data.get("distance")
             price = data.get("price")
             self.phone_logic.receive_route_suggestion(distance, price)
-        
+
         elif msg_command == "distance_remaining":
             distance = data.get("distance")
 
             self.app.setLabel("distance_label", f"Distance to destination: {distance} meters")
-        
+
         elif msg_command == "price_remaining":
             price = data.get("price")
             self.app.setLabel("price_label", f"Estimated price: {price} NOK")
-        
+
         elif msg_command == "out_of_route_exception":
             self.phone_logic.stm.send("user_out_route_exception")
-
-
-
-
 
 
 def create_machine(self, phone_name, func, component):
@@ -249,7 +252,6 @@ def create_machine(self, phone_name, func, component):
 
 
 PhoneLogic.create_machine = create_machine
-
 
 if __name__ == '__main__':
     phone_component = PhoneSenderComponent()
