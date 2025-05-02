@@ -13,11 +13,11 @@ MQTT_TOPIC_OUTPUT = 'team02Output'
 
 
 def calculate_price(distance):
-    return distance * 0.05
+    return round(distance * 0.05, 2)
 
 
 def calculate_distance(source, destination):
-    return (abs(destination[0] - source[0]) + abs(destination[1] - source[1])) / 2
+    return round((abs(destination[0] - source[0]) + abs(destination[1] - source[1])) / 2, 2)
 
 
 class ServerLogic:
@@ -48,7 +48,7 @@ class ServerLogic:
 
         self.component.publish_message(msg)
 
-    def get_escooter(self, escooter_id):
+    def reserve_escooter(self, escooter_id):
         for i in range(len(self.escooters)):
             if escooter_id == self.escooters[i]["id"]:
                 self.escooters[i]["busy"] = self.name
@@ -59,12 +59,16 @@ class ServerLogic:
         self.component.publish_message({"command": "suggest_route", "distance": distance, "price": price})
 
     def price_remaining(self, phone_location):
-        price = 2 * calculate_distance(phone_location, self.destination)
+        price = round(2 * calculate_distance(phone_location, self.destination), 2)
         self.component.publish_message({"command": "price_remaining", "price": price})
 
-    def remaining_distance(self, phone_location):
-        distance = calculate_distance(phone_location, self.destination)
+    def distance_remaining(self, phone_location):
+        distance = round(calculate_distance(phone_location, self.destination), 2)
         self.component.publish_message({"command": "distance_remaining", "distance": distance})
+
+    def send_info_to_escooter(self, destination, price):
+        self.component.publish_message({"command": "receive_route_details", "destination": destination,"price": price})
+
 
 
 class ServerManagerComponent:
@@ -209,7 +213,7 @@ class ServerManagerComponent:
                 server_name = payload.get('phone_name')
                 escooter_id = payload.get("escooter")  # save id for calculation later
                 print(payload)
-                self.server_logic[server_name].get_escooter(escooter_id)
+                self.server_logic[server_name].reserve_escooter(escooter_id)
 
                 self.stm_driver[server_name].send('selected_escooter', server_name)
             except Exception as err:
@@ -232,6 +236,9 @@ class ServerManagerComponent:
                 server_name = payload.get('phone_name')
                 confirmed = payload.get('confirm')
                 if confirmed:
+                    price = payload.get("price")
+                    self.server_logic[server_name].send_info_to_escooter(self.server_logic[server_name].destination,
+                                                                         price)
                     self.stm_driver[server_name].send('route_accepted', server_name)
                 else:
                     self.stm_driver[server_name].send('route_declined', server_name)
@@ -241,7 +248,7 @@ class ServerManagerComponent:
         elif command == "ask_price":
             try:
                 server_name = payload.get('phone_name')
-                self.stm_driver[server_name].send('request_price_distance', server_name)
+                self.stm_driver[server_name].send('price_requested', server_name)
                 phone_location = payload.get('location')
                 self.server_logic[server_name].price_remaining(phone_location)
             except Exception as err:
@@ -250,8 +257,8 @@ class ServerManagerComponent:
         elif command == "ask_distance":
             try:
                 server_name = payload.get('phone_name')
-                self.stm_driver[server_name].send('request_price_distance', server_name)
-                self.server_logic[server_name].remaining_distance(payload.get("location"))
+                self.stm_driver[server_name].send('distance_requested', server_name)
+                self.server_logic[server_name].distance_remaining(payload.get("location"))
             except Exception as err:
                 self._logger.error('Invalid arguments to command. {}'.format(err))
 
@@ -292,7 +299,7 @@ def create_machine(self, server_name, component):
     t1 = {
         "trigger": "exchange_phone_location",
         "source": "WaitPhoneRequest",
-        "target": "waiting_escooters_location",
+        "target": "WaitingEscootersLocation",
         # "effect": "send_escooters_nearby(phone_location)"
     }
     # SearchForNearbyEscooters -> AwaitDestination
@@ -321,26 +328,35 @@ def create_machine(self, server_name, component):
     }
     # Travelling -> Traveling (send price and route)
     t6 = {
-        "trigger": "request_price_distance",
+        "trigger": "distance_requested",
         "source": "Traveling",
-        "target": "Traveling",
-        # "effect": "send_price(), send_distance()"
+        "target": "CalculateDistance"
     }
-    # Travelling -> WaitPhoneRequest
     t7 = {
-        "trigger": "user_out_of_bounds_exception",
+        "trigger": "price_requested",
         "source": "Traveling",
-        "target": "WaitPhoneRequest"
+        "target": "CalculatePrice"
     }
-    # Travelling -> WaitPhoneRequest
     t8 = {
+        "trigger": "send_distance",
+        "source": "CalculateDistance",
+        "target": "Traveling"
+    }
+    t9 = {
+        "trigger": "price_requested",
+        "source": "CalculatePrice",
+        "target": "Traveling"
+    }
+
+    # Travelling -> WaitPhoneRequest
+    t10 = {
         "trigger": "destination_reached",
         "source": "Traveling",
         "target": "final"
     }
-    t9 = {
+    t11 = {
         "trigger": "received_escooters_location",
-        "source": "waiting_escooters_location",
+        "source": "WaitingEscootersLocation",
         "target": "SearchForNearbyEscooters"
     }
     """
@@ -356,7 +372,7 @@ def create_machine(self, server_name, component):
     Traveling = {"name": "Traveling", 
                     "entry": "send_price; send_route" }
     """
-    server_stm = Machine(name=server_name, transitions=[t0, t1, t2, t3, t4, t5, t6, t7, t8, t9], obj=self)
+    server_stm = Machine(name=server_name, transitions=[t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11], obj=self)
     self.stm = server_stm
     return server_stm
 
